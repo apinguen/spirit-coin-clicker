@@ -941,9 +941,9 @@
         <div class="tab-content" id="leaderboard-tab">
             <div class="panel">
                 <div class="panel-title">📊 Patrol Leaderboard 📊</div>
-                <button class="refresh-button" id="refreshLeaderboard">🔄 Refresh Leaderboard</button>
+                <button class="refresh-button" id="refreshLeaderboard">📊 Setup/View Leaderboard</button>
                 <div id="leaderboardContent">
-                    <div class="loading">Click refresh to load patrol rankings...</div>
+                    <div class="loading">Click the button above to setup the embedded leaderboard view</div>
                 </div>
             </div>
         </div>
@@ -1011,9 +1011,14 @@
         // ===== CONFIGURATION =====
         // Set your Google Apps Script Web App URL here
         // Deploy your Apps Script and paste the URL below
-        const WEB_APP_URL = ''; // Example: 'https://script.google.com/macros/s/AKfycbz.../exec'
+        const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwYguL6I8OrIB_N2nLgO6_nG1TW79xrP0Qo2R5JXZcPH5g3u06nQUxycslG7imLcil8HA/exec'; // Example: 'https://script.google.com/macros/s/AKfycbz.../exec'
         
-        // If left empty, users will need to enter it manually in the upload modal
+        // Set your Google Sheets URL here (for embedded leaderboard)
+        // This is the URL of your Google Sheet (the one where uploads go)
+        // Make sure the sheet is set to "Anyone with the link can VIEW"
+        const GOOGLE_SHEET_URL = 'https://docs.google.com/spreadsheets/d/13pRP6Q56DVZf5NwyDx1_EAg6A2rgSKJbRax37kAvkZ8/edit?usp=sharing'; // Example: 'https://docs.google.com/spreadsheets/d/ABC123.../edit'
+        
+        // If left empty, users will need to enter URLs manually
         // ========================
 
         // Game state
@@ -1663,72 +1668,137 @@
             });
         }
 
-        // Fetch leaderboard
-        async function fetchLeaderboard() {
-            const sheetsUrl = sheetsUrlInput.value.trim() || WEB_APP_URL;
-            
-            if (!sheetsUrl) {
-                leaderboardContentEl.innerHTML = '<div class="loading">Please configure Web App URL first. Enter it in the upload modal or set WEB_APP_URL in the code.</div>';
+        // Fetch leaderboard - using embedded Google Sheets
+        function fetchLeaderboard() {
+            // Check if GOOGLE_SHEET_URL is configured
+            if (GOOGLE_SHEET_URL) {
+                embedGoogleSheet(GOOGLE_SHEET_URL);
                 return;
             }
 
-            leaderboardContentEl.innerHTML = '<div class="loading">Loading leaderboard...</div>';
+            // Otherwise check for saved URL
+            const savedSheetViewUrl = localStorage.getItem('sheetViewUrl');
+            if (savedSheetViewUrl) {
+                embedGoogleSheet(savedSheetViewUrl);
+                return;
+            }
 
-            try {
-                // Use JSONP to fetch leaderboard data from Google Apps Script
-                const callbackName = 'leaderboardCallback' + Date.now();
-                const script = document.createElement('script');
-                
-                // Create a promise that will resolve when the callback is called
-                const dataPromise = new Promise((resolve, reject) => {
-                    window[callbackName] = function(data) {
-                        delete window[callbackName];
-                        document.body.removeChild(script);
-                        resolve(data);
-                    };
+            // If neither, show the setup prompt
+            showSheetEmbedPrompt();
+        }
+
+        // Show prompt for Google Sheets URL
+        function showSheetEmbedPrompt() {
+            leaderboardContentEl.innerHTML = `
+                <div style="padding: 20px;">
+                    <p style="margin-bottom: 15px; color: var(--gold); font-weight: 700;">📊 Setup Leaderboard Display</p>
+                    <p style="margin-bottom: 15px; line-height: 1.6;">To display the live leaderboard, we need your Google Sheets URL:</p>
                     
-                    script.onerror = () => {
-                        delete window[callbackName];
-                        document.body.removeChild(script);
-                        reject(new Error('Failed to load leaderboard'));
-                    };
-                });
-                
-                script.src = sheetsUrl + '?action=leaderboard&callback=' + callbackName;
-                document.body.appendChild(script);
-                
-                // Wait for the callback with a timeout
-                const timeoutPromise = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('Timeout')), 10000)
-                );
-                
-                const data = await Promise.race([dataPromise, timeoutPromise]);
-                
-                // Display the leaderboard
-                if (data && data.status === 'success' && data.leaderboard) {
-                    displayLeaderboard(data.leaderboard);
-                } else {
-                    throw new Error('Invalid data format');
-                }
+                    <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 10px; margin-bottom: 15px;">
+                        <p style="margin-bottom: 10px; font-weight: 600;">Step 1: Open your Spirit Coins Google Sheet</p>
+                        <p style="margin-bottom: 10px; font-weight: 600;">Step 2: Click "Share" → Make sure it's set to "Anyone with the link can VIEW"</p>
+                        <p style="margin-bottom: 10px; font-weight: 600;">Step 3: Copy the sheet URL from your browser</p>
+                        <p style="font-size: 0.85rem; color: var(--rope);">Example: https://docs.google.com/spreadsheets/d/ABC123.../edit</p>
+                    </div>
 
-            } catch (error) {
-                console.error('Leaderboard error:', error);
+                    <label style="display: block; margin-bottom: 8px; font-weight: 600;">Paste your Google Sheets URL here:</label>
+                    <input type="text" id="sheetUrlInput" placeholder="https://docs.google.com/spreadsheets/d/..." 
+                           style="width: 100%; padding: 10px; border: 2px solid var(--rope); border-radius: 8px; 
+                                  font-size: 1rem; background: var(--parchment); color: var(--wood); margin-bottom: 15px;">
+                    
+                    <button id="embedSheetBtn" style="width: 100%; padding: 12px; background: var(--gold); 
+                            color: var(--wood); border: none; border-radius: 8px; font-weight: 700; 
+                            font-size: 1.1rem; cursor: pointer; font-family: 'Pirata One', cursive;">
+                        📊 Show Leaderboard
+                    </button>
+                    
+                    <p style="margin-top: 15px; font-size: 0.85rem; color: var(--rope); text-align: center;">
+                        This will be saved for future visits
+                    </p>
+                </div>
+            `;
+
+            document.getElementById('embedSheetBtn').addEventListener('click', () => {
+                const sheetUrl = document.getElementById('sheetUrlInput').value.trim();
+                if (sheetUrl) {
+                    localStorage.setItem('sheetViewUrl', sheetUrl);
+                    embedGoogleSheet(sheetUrl);
+                } else {
+                    alert('Please enter a Google Sheets URL');
+                }
+            });
+        }
+
+        // Embed Google Sheet as iframe
+        function embedGoogleSheet(sheetUrl) {
+            // Extract sheet ID from URL
+            const sheetIdMatch = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
+            
+            if (!sheetIdMatch) {
                 leaderboardContentEl.innerHTML = `
-                    <div class="info-text" style="padding: 20px; text-align: left;">
-                        <p style="margin-bottom: 15px; color: var(--gold); font-weight: 700;">Unable to fetch live leaderboard data.</p>
-                        <p style="margin-bottom: 10px;">To view patrol rankings:</p>
-                        <ol style="margin-left: 20px; line-height: 1.8;">
-                            <li>Open your Google Sheet</li>
-                            <li>View the raw upload data, OR</li>
-                            <li>Run the <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">createLeaderboard()</code> function in Apps Script to generate a formatted leaderboard sheet</li>
-                        </ol>
-                        <p style="margin-top: 15px; font-size: 0.9rem; color: var(--rope);">Note: Live leaderboard requires JSONP support in your Apps Script deployment.</p>
+                    <div style="padding: 20px;">
+                        <p style="color: #ff6b6b; margin-bottom: 10px;">❌ Invalid Google Sheets URL</p>
+                        <p style="margin-bottom: 15px;">Please make sure you copied the full URL from your browser's address bar.</p>
+                        <button id="tryAgainBtn" style="padding: 10px 20px; background: var(--gold); color: var(--wood); 
+                                border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">
+                            Try Again
+                        </button>
                     </div>
                 `;
+                document.getElementById('tryAgainBtn').addEventListener('click', () => {
+                    localStorage.removeItem('sheetViewUrl');
+                    showSheetEmbedPrompt();
+                });
+                return;
+            }
+
+            const sheetId = sheetIdMatch[1];
+            
+            // Check if there's a specific sheet/tab to display
+            let gid = '0'; // Default to first sheet
+            const gidMatch = sheetUrl.match(/[#&]gid=([0-9]+)/);
+            if (gidMatch) {
+                gid = gidMatch[1];
+            }
+
+            // Create embed URL
+            const embedUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/htmlembed?gid=${gid}&widget=true&headers=false`;
+
+            leaderboardContentEl.innerHTML = `
+                <div style="position: relative;">
+                    <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <span style="color: var(--gold); font-weight: 600;">📊 Live Leaderboard ${GOOGLE_SHEET_URL ? '(Pre-configured ✓)' : ''}</span>
+                        ${!GOOGLE_SHEET_URL ? `<button id="changeSheetBtn" style="padding: 6px 12px; background: rgba(255,215,0,0.2); 
+                                color: var(--gold); border: 2px solid var(--gold); border-radius: 6px; 
+                                cursor: pointer; font-size: 0.85rem; font-weight: 600;">
+                            Change Sheet
+                        </button>` : ''}
+                    </div>
+                    <iframe src="${embedUrl}" 
+                            style="width: 100%; height: 600px; border: 3px solid var(--gold); border-radius: 10px; 
+                                   background: white;">
+                    </iframe>
+                    <div style="margin-top: 10px; text-align: center; color: var(--rope); font-size: 0.85rem;">
+                        💡 Tip: Run <code>createLeaderboard()</code> in Apps Script to generate a formatted leaderboard sheet
+                    </div>
+                </div>
+            `;
+
+            // Only show change button if URL wasn't pre-configured
+            if (!GOOGLE_SHEET_URL) {
+                const changeBtn = document.getElementById('changeSheetBtn');
+                if (changeBtn) {
+                    changeBtn.addEventListener('click', () => {
+                        if (confirm('Change the Google Sheet URL? This will clear the current sheet.')) {
+                            localStorage.removeItem('sheetViewUrl');
+                            showSheetEmbedPrompt();
+                        }
+                    });
+                }
             }
         }
 
-        // Display leaderboard data
+        // Display leaderboard data (legacy - keeping for compatibility)
         function displayLeaderboard(leaderboard) {
             if (!leaderboard || leaderboard.length === 0) {
                 leaderboardContentEl.innerHTML = '<div class="loading">No patrol data yet. Start uploading coins!</div>';
