@@ -1767,7 +1767,7 @@
             leaderboardContentEl.innerHTML = `
                 <div style="position: relative;">
                     <div style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-                        <span style="color: var(--gold); font-weight: 600;">📊 Live Leaderboard ${GOOGLE_SHEET_URL ? '(Pre-configured ✓)' : ''}</span>
+                        <span style="color: var(--gold); font-weight: 600;">📊 Live Leaderboard ${GOOGLE_SHEET_URL ? '(Leaderboard connected ✓)' : ''}</span>
                         ${!GOOGLE_SHEET_URL ? `<button id="changeSheetBtn" style="padding: 6px 12px; background: rgba(255,215,0,0.2); 
                                 color: var(--gold); border: 2px solid var(--gold); border-radius: 6px; 
                                 cursor: pointer; font-size: 0.85rem; font-weight: 600;">
@@ -1778,9 +1778,6 @@
                             style="width: 100%; height: 600px; border: 3px solid var(--gold); border-radius: 10px; 
                                    background: white;">
                     </iframe>
-                    <div style="margin-top: 10px; text-align: center; color: var(--rope); font-size: 0.85rem;">
-                        💡 Tip: Run <code>createLeaderboard()</code> in Apps Script to generate a formatted leaderboard sheet
-                    </div>
                 </div>
             `;
 
