@@ -859,6 +859,15 @@
             font-style: italic;
             padding: 20px;
         }
+
+        code {
+            background: rgba(0,0,0,0.3);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: var(--gold);
+        }
     </style>
 </head>
 <body>
@@ -1002,7 +1011,7 @@
         // ===== CONFIGURATION =====
         // Set your Google Apps Script Web App URL here
         // Deploy your Apps Script and paste the URL below
-        const WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwYguL6I8OrIB_N2nLgO6_nG1TW79xrP0Qo2R5JXZcPH5g3u06nQUxycslG7imLcil8HA/exec'; // Example: 'https://script.google.com/macros/s/AKfycbz.../exec'
+        const WEB_APP_URL = ''; // Example: 'https://script.google.com/macros/s/AKfycbz.../exec'
         
         // If left empty, users will need to enter it manually in the upload modal
         // ========================
@@ -1659,43 +1668,100 @@
             const sheetsUrl = sheetsUrlInput.value.trim() || WEB_APP_URL;
             
             if (!sheetsUrl) {
-                leaderboardContentEl.innerHTML = '<div class="loading">Please configure Web App URL in Upload settings first.</div>';
+                leaderboardContentEl.innerHTML = '<div class="loading">Please configure Web App URL first. Enter it in the upload modal or set WEB_APP_URL in the code.</div>';
                 return;
             }
 
             leaderboardContentEl.innerHTML = '<div class="loading">Loading leaderboard...</div>';
 
             try {
-                // Fetch data from Google Apps Script
-                // Note: We need to modify the Apps Script to handle GET requests for leaderboard
-                const response = await fetch(sheetsUrl + '?action=leaderboard', {
-                    method: 'GET',
-                    mode: 'cors'
+                // Use JSONP to fetch leaderboard data from Google Apps Script
+                const callbackName = 'leaderboardCallback' + Date.now();
+                const script = document.createElement('script');
+                
+                // Create a promise that will resolve when the callback is called
+                const dataPromise = new Promise((resolve, reject) => {
+                    window[callbackName] = function(data) {
+                        delete window[callbackName];
+                        document.body.removeChild(script);
+                        resolve(data);
+                    };
+                    
+                    script.onerror = () => {
+                        delete window[callbackName];
+                        document.body.removeChild(script);
+                        reject(new Error('Failed to load leaderboard'));
+                    };
                 });
-
-                // Since we're using no-cors, we can't actually read the response
-                // In a real implementation, you'd need to set up CORS properly in Apps Script
-                // For now, show a message
-                leaderboardContentEl.innerHTML = `
-                    <div class="info-text" style="padding: 20px;">
-                        <p style="margin-bottom: 15px;">To enable live leaderboard, you need to:</p>
-                        <ol style="text-align: left; margin-left: 20px;">
-                            <li>Open your Google Sheet</li>
-                            <li>View the current patrol totals</li>
-                            <li>Create a Leaderboard using the Apps Script function</li>
-                        </ol>
-                        <p style="margin-top: 15px;">The leaderboard data is in your Google Sheet!</p>
-                    </div>
-                `;
+                
+                script.src = sheetsUrl + '?action=leaderboard&callback=' + callbackName;
+                document.body.appendChild(script);
+                
+                // Wait for the callback with a timeout
+                const timeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Timeout')), 10000)
+                );
+                
+                const data = await Promise.race([dataPromise, timeoutPromise]);
+                
+                // Display the leaderboard
+                if (data && data.status === 'success' && data.leaderboard) {
+                    displayLeaderboard(data.leaderboard);
+                } else {
+                    throw new Error('Invalid data format');
+                }
 
             } catch (error) {
+                console.error('Leaderboard error:', error);
                 leaderboardContentEl.innerHTML = `
-                    <div class="info-text" style="color: var(--rope); padding: 20px;">
-                        View the leaderboard in your Google Sheet. 
-                        Use the "createLeaderboard()" function in Apps Script to generate rankings.
+                    <div class="info-text" style="padding: 20px; text-align: left;">
+                        <p style="margin-bottom: 15px; color: var(--gold); font-weight: 700;">Unable to fetch live leaderboard data.</p>
+                        <p style="margin-bottom: 10px;">To view patrol rankings:</p>
+                        <ol style="margin-left: 20px; line-height: 1.8;">
+                            <li>Open your Google Sheet</li>
+                            <li>View the raw upload data, OR</li>
+                            <li>Run the <code style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">createLeaderboard()</code> function in Apps Script to generate a formatted leaderboard sheet</li>
+                        </ol>
+                        <p style="margin-top: 15px; font-size: 0.9rem; color: var(--rope);">Note: Live leaderboard requires JSONP support in your Apps Script deployment.</p>
                     </div>
                 `;
             }
+        }
+
+        // Display leaderboard data
+        function displayLeaderboard(leaderboard) {
+            if (!leaderboard || leaderboard.length === 0) {
+                leaderboardContentEl.innerHTML = '<div class="loading">No patrol data yet. Start uploading coins!</div>';
+                return;
+            }
+
+            let html = '<div class="leaderboard-list">';
+            
+            leaderboard.forEach((entry, index) => {
+                const rank = index + 1;
+                let rankClass = '';
+                if (rank === 1) rankClass = 'rank-1';
+                else if (rank === 2) rankClass = 'rank-2';
+                else if (rank === 3) rankClass = 'rank-3';
+                
+                let medal = '';
+                if (rank === 1) medal = '🥇';
+                else if (rank === 2) medal = '🥈';
+                else if (rank === 3) medal = '🥉';
+                
+                html += `
+                    <div class="leaderboard-item ${rankClass}">
+                        <div class="leaderboard-rank">${medal || rank}</div>
+                        <div class="leaderboard-info">
+                            <div class="leaderboard-name">${entry.patrolName}</div>
+                        </div>
+                        <div class="leaderboard-coins">${formatNumber(entry.totalCoins)}</div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            leaderboardContentEl.innerHTML = html;
         }
 
         refreshLeaderboardBtn.addEventListener('click', fetchLeaderboard);
